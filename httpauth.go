@@ -63,6 +63,7 @@ func CreateJWTWithClaims(ctx context.Context, claims map[string]interface{}) (st
 	return tokenString, nil
 }
 
+// GetClaimFromToken extracts a claim from a valid JWT token string and returns it
 func GetClaimFromToken(r *http.Request, claim string) (string, error) {
 	tokenString, err := getTokenString(r)
 	if err != nil {
@@ -105,7 +106,10 @@ func getStringClaimFromToken(ctx context.Context, tokenString, key string) (stri
 		return "", err
 	}
 	claims := token.Claims.(jwt.MapClaims)
-	return claims[key].(string), nil
+	if claim, ok := claims[key].(string); ok {
+		return claim, nil
+	}
+	return "", errors.New("could not find claim with this name")
 }
 
 func getSecretKey(ctx context.Context) ([]byte, error) {
