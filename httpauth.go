@@ -63,8 +63,8 @@ func CreateJWTWithClaims(ctx context.Context, claims map[string]interface{}) (st
 	return tokenString, nil
 }
 
-// GetClaimFromToken extracts a claim from a valid JWT token string and returns it
-func GetClaimFromToken(r *http.Request, claim string) (string, error) {
+// GetClaimFromRequestToken extracts a claim from a valid JWT token string (auth header) in the supplied request and returns it
+func GetClaimFromRequestToken(r *http.Request, claim string) (string, error) {
 	tokenString, err := getTokenString(r)
 	if err != nil {
 		return "", err
