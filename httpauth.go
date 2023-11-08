@@ -7,8 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blueambertech/logging"
 	"github.com/blueambertech/secretmanager"
 	"github.com/golang-jwt/jwt"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -19,14 +22,17 @@ var (
 // Authorize is a middleware func that checks a request has a valid JWT before allowing the request to continue
 func Authorize(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, span := logging.Tracer.Start(r.Context(), "httpauth/Authorize")
+		defer span.End()
 		tokenString, err := getTokenString(r)
 		if err != nil {
-			http.Error(w, "error extracting token", http.StatusUnauthorized)
+			httpError(w, "error extracting token", http.StatusUnauthorized, span, err)
+			return
 		}
 
 		err = verifyJWT(r.Context(), tokenString)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			httpError(w, "failed to verify token", http.StatusForbidden, span, err)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -125,4 +131,10 @@ func getSecretKey(ctx context.Context) ([]byte, error) {
 	default:
 		return nil, errors.New("secret value was an recognised type")
 	}
+}
+
+func httpError(w http.ResponseWriter, msg string, httpStatus int, span trace.Span, err error) {
+	http.Error(w, msg, httpStatus)
+	span.RecordError(err)
+	span.SetStatus(codes.Error, msg)
 }
