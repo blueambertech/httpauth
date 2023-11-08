@@ -16,11 +16,10 @@ import (
 
 var (
 	StandardTokenLife = time.Hour * 1
-	Secrets           secretmanager.SecretManager
 )
 
 // Authorize is a middleware func that checks a request has a valid JWT before allowing the request to continue
-func Authorize(next http.Handler) http.Handler {
+func Authorize(next http.Handler, sm secretmanager.SecretManager) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, span := logging.Tracer.Start(r.Context(), "httpauth/Authorize")
 		defer span.End()
@@ -30,7 +29,7 @@ func Authorize(next http.Handler) http.Handler {
 			return
 		}
 
-		err = verifyJWT(r.Context(), tokenString)
+		err = verifyJWT(r.Context(), sm, tokenString)
 		if err != nil {
 			httpError(w, "failed to verify token", http.StatusForbidden, span, err)
 			return
@@ -40,10 +39,10 @@ func Authorize(next http.Handler) http.Handler {
 }
 
 // CreateJWT creates a JWT with no claims
-func CreateJWT(ctx context.Context) (string, error) {
+func CreateJWT(ctx context.Context, sm secretmanager.SecretManager) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
-	k, err := getSecretKey(ctx)
+	k, err := getSecretKey(ctx, sm)
 	if err != nil {
 		return "", err
 	}
@@ -55,10 +54,10 @@ func CreateJWT(ctx context.Context) (string, error) {
 }
 
 // CreateJWTWithClaims creates a JWT with additional claims
-func CreateJWTWithClaims(ctx context.Context, claims map[string]interface{}) (string, error) {
+func CreateJWTWithClaims(ctx context.Context, sm secretmanager.SecretManager, claims map[string]interface{}) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims(claims))
 
-	k, err := getSecretKey(ctx)
+	k, err := getSecretKey(ctx, sm)
 	if err != nil {
 		return "", err
 	}
@@ -70,12 +69,12 @@ func CreateJWTWithClaims(ctx context.Context, claims map[string]interface{}) (st
 }
 
 // GetClaimFromRequestToken extracts a claim from a valid JWT token string (auth header) in the supplied request and returns it
-func GetClaimFromRequestToken(r *http.Request, claim string) (string, error) {
+func GetClaimFromRequestToken(r *http.Request, sm secretmanager.SecretManager, claim string) (string, error) {
 	tokenString, err := getTokenString(r)
 	if err != nil {
 		return "", err
 	}
-	return getStringClaimFromToken(r.Context(), tokenString, claim)
+	return getStringClaimFromToken(r.Context(), sm, tokenString, claim)
 }
 
 func getTokenString(r *http.Request) (string, error) {
@@ -91,9 +90,9 @@ func getTokenString(r *http.Request) (string, error) {
 	return split[1], nil
 }
 
-func verifyJWT(ctx context.Context, tokenString string) error {
+func verifyJWT(ctx context.Context, sm secretmanager.SecretManager, tokenString string) error {
 	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (interface{}, error) {
-		return getSecretKey(ctx)
+		return getSecretKey(ctx, sm)
 	})
 	if err != nil {
 		return err
@@ -104,9 +103,9 @@ func verifyJWT(ctx context.Context, tokenString string) error {
 	return nil
 }
 
-func getStringClaimFromToken(ctx context.Context, tokenString, key string) (string, error) {
+func getStringClaimFromToken(ctx context.Context, sm secretmanager.SecretManager, tokenString, key string) (string, error) {
 	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (interface{}, error) {
-		return getSecretKey(ctx)
+		return getSecretKey(ctx, sm)
 	})
 	if err != nil {
 		return "", err
@@ -118,8 +117,8 @@ func getStringClaimFromToken(ctx context.Context, tokenString, key string) (stri
 	return "", errors.New("could not find claim with this name")
 }
 
-func getSecretKey(ctx context.Context) ([]byte, error) {
-	secretKey, err := Secrets.Get(ctx, "jwt-auth-token-key")
+func getSecretKey(ctx context.Context, sm secretmanager.SecretManager) ([]byte, error) {
+	secretKey, err := sm.Get(ctx, "jwt-auth-token-key")
 	if err != nil {
 		return nil, err
 	}
